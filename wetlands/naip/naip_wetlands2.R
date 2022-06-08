@@ -218,6 +218,7 @@ grid <-
         TRUE                            ~ primary_st
       )
   ) %>% 
+  # dplyr::filter(state %in% c("CO", "NV", "NM", "UT", "WY")) %>% 
   dplyr::select(new_id, cell_id, naip_entit, state, geometry) %>% 
   dplyr::group_by(state) %>% 
   dplyr::group_split()
@@ -228,7 +229,7 @@ save_subset_path <- "D:/wff/subset_raster/"
 #  buffer raster state subsets
 subset_path <- paste0(save_subset_path, list.files(save_subset_path))
 
-# i <- 1
+# i <- 3
 
 final_naip_lst1 <- list()
 final_naip_lst2 <- list()
@@ -241,14 +242,16 @@ for (i in 1:length(subset_path)) {
   logger::log_info("\n\nLoading {state_abb} wetlands...\n{i} of {length(wl_geom_path)} states")
   
   # State wetlands 
-  aoi         <- terra::vect(readRDS(wl_geom_path[i]))[,c(1, 2, 6, 11, 12)]
-  
+  aoi         <- terra::vect(readRDS(wl_geom_path[i]))[,c("ATTRIBUTE", "WETLAND_TYPE", "PROJECT_NAME", "IMAGE_YR", "IMAGE_DATE")]
+
   # state raster buffer
   r_buff <- terra::rast(subset_path[i])
   
   # State NAIP tiles subset
   st_grid <- grid[[i]] 
-  
+  # rm(tmp)
+  # tmp <- final_naip_df1 %>% filter(state == "CA") 
+  # length(unique(tmp$cell_id))
   logger::log_info("\n\nCropping raster to state bbox...")
   
 
@@ -406,27 +409,96 @@ for (i in 1:length(subset_path)) {
   
 }
 
-
+# bind loop output lists
 final_naip_df1 <-  dplyr::bind_rows(final_naip_lst1)
 final_naip_df2 <-  dplyr::bind_rows(final_naip_lst2)
+
+# local save path
 save_naip_path <- "D:/wff/wetlands/naip"
-  # Save table
-  saveRDS(
+
+# Save table 1
+saveRDS(
     final_naip_df1,
     paste0(save_naip_path, "/naip_wetlands_area.rds")
   )
-  saveRDS(
+
+# Save table 2
+saveRDS(
     final_naip_df2,
     paste0(save_naip_path, "/naip_wetlands.rds")
   )
-# By the way, I am processing a new version of the wetlands-naip tile areas dataset, 
 
- # ************************************
+# # Save table
+# saveRDS(
+#   naip_wetland_area,
+#   paste0(save_naip_path, "/naip_wetlands_area_final.rds")
+# )
+# 
+# saveRDS(
+#   naip_wetland,
+#   paste0(save_naip_path, "/naip_wetlands_final.rds")
+# )
 
+# ************************************
 
+# ********************
+# ---- Final save ----
+# ********************
 
+save_naip_path <- "D:/wff/wetlands/naip"
 
+naip_wetland_area <- readRDS(paste0(save_naip_path, "/naip_wetlands_area_final.rds"))
+naip_wetland      <- readRDS(paste0(save_naip_path, "/naip_wetlands_final.rds"))
 
+naip_wetland_area <- naip_wetland_area[!duplicated(naip_wetland_area$cell_id), ] 
+
+naip_wetland_area <-
+  naip_wetland_area %>% 
+  dplyr::mutate(total_wetland_area = round(total_wl_area, 2)) %>% 
+  dplyr::select(cell_id, naip_entit, total_wetland_area)
+
+wl_summary <- 
+  # wl_df[!duplicated(wl_df$wl_area), ] %>%
+  naip_wetland %>% 
+  distinct(cell_id, ATTRIBUTE,IMAGE_YR, majority, wl_area) %>%
+  dplyr::mutate(
+    wl_area = case_when(
+      majority == 1 ~ wl_area,
+      majority == 0 ~ 0,
+    )
+  ) %>% 
+  dplyr::group_by(cell_id, ATTRIBUTE, IMAGE_YR) %>% 
+  dplyr::summarize(
+    wetland_area = round(sum(wl_area, na.rm = T), 3)
+  ) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::left_join(
+    dplyr::select(naip_wetland_area, cell_id, naip_entit),
+    by = "cell_id"
+  ) %>% 
+  dplyr::relocate(cell_id, naip_entit) 
+
+length(unique(wl_summary$cell_id))
+
+# save skipped NAIP tiles 
+saveRDS(
+  naip_wetland_area,
+  here::here("data","wetlands", "naip_area", "final", "naip_wetlands_area2.rds")
+)
+
+# save skipped NAIP tiles 
+saveRDS(
+  wl_summary,
+  here::here("data","wetlands", "naip_area", "final", "naip_wetlands2.rds")
+)
+
+# save skipped NAIP tiles 
+readr::write_csv(
+  wl_summary,
+  here::here("data","wetlands", "naip_area", "final", "naip_wetlands2.csv")
+)
+
+# ************************************
 
 
 
